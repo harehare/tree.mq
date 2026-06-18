@@ -1,0 +1,157 @@
+include "test"
+| include "tree"
+|
+
+# -- tree_leaf / tree_branch --
+
+def test_tree_leaf():
+  let node = tree_leaf("a")
+  | assert_eq(node["label"], "a")
+  | assert_eq(node["children"], [])
+end
+
+def test_tree_branch():
+  let node = tree_branch("a", [tree_leaf("b")])
+  | assert_eq(node["label"], "a")
+  | assert_eq(len(node["children"]), 1)
+end
+
+# -- tree_render --
+
+def test_tree_render_single_leaf():
+  let node = tree_leaf("root")
+  | assert_eq(tree_render(node), "root")
+end
+
+def test_tree_render_simple_tree():
+  let node = tree_branch("root", [tree_leaf("a"), tree_branch("b", [tree_leaf("c"), tree_leaf("d")])])
+  | assert_eq(tree_render(node), "root\n├── a\n└── b\n    ├── c\n    └── d")
+end
+
+def test_tree_render_deep_nesting():
+  let node = tree_branch("a", [tree_branch("b", [tree_branch("c", [tree_leaf("d")])])])
+  | assert_eq(tree_render(node), "a\n└── b\n    └── c\n        └── d")
+end
+
+# -- tree_from_value --
+
+def test_tree_from_value_scalar():
+  let node = tree_from_value(42)
+  | assert_eq(node["label"], "root: 42")
+  | assert_eq(node["children"], [])
+end
+
+def test_tree_from_value_default_label():
+  let node = tree_from_value("x")
+  | assert_eq(node["label"], "root: x")
+end
+
+def test_tree_from_value_custom_label():
+  let node = tree_from_value([1, 2], "nums")
+  | assert_eq(node["label"], "nums")
+end
+
+def test_tree_from_value_none():
+  let node = tree_from_value(None)
+  | assert_eq(node["label"], "root: None")
+end
+
+def test_tree_from_value_dict():
+  let node = tree_from_value({"name": "Alice", "age": 30})
+  | assert_eq(len(node["children"]), 2)
+  | assert(in(map(node["children"], fn(c): c["label"];), "name: Alice"))
+  | assert(in(map(node["children"], fn(c): c["label"];), "age: 30"))
+end
+
+def test_tree_from_value_array():
+  let node = tree_from_value(["a", "b"])
+  | assert_eq(len(node["children"]), 2)
+  | assert_eq(node["children"][0]["label"], "[0]: a")
+  | assert_eq(node["children"][1]["label"], "[1]: b")
+end
+
+def test_tree_from_value_nested():
+  let node = tree_from_value({"pets": ["cat", "dog"]})
+  | let pets = node["children"][0]
+  | assert_eq(pets["label"], "pets")
+  | assert_eq(len(pets["children"]), 2)
+end
+
+def test_tree_from_value_render():
+  let node = tree_from_value({"name": "Alice", "pets": ["cat", "dog"]})
+  | let rendered = tree_render(node)
+  | assert(contains(rendered, "name: Alice"))
+  | assert(contains(rendered, "[0]: cat"))
+  | assert(contains(rendered, "[1]: dog"))
+end
+
+# -- tree_from_paths --
+
+def test_tree_from_paths_empty():
+  let node = tree_from_paths([])
+  | assert_eq(node["label"], ".")
+  | assert_eq(node["children"], [])
+end
+
+def test_tree_from_paths_flat():
+  let node = tree_from_paths(["a", "b"])
+  | assert_eq(len(node["children"]), 2)
+end
+
+def test_tree_from_paths_nested():
+  let node = tree_from_paths(["src/main.rs", "src/lib.rs", "src/util/foo.rs", "README.md"])
+  | assert_eq(len(node["children"]), 2)
+  | let src = node["children"][0]
+  | assert_eq(src["label"], "src")
+  | assert_eq(len(src["children"]), 3)
+  | let util = src["children"][2]
+  | assert_eq(util["label"], "util")
+  | assert_eq(len(util["children"]), 1)
+end
+
+def test_tree_from_paths_merges_shared_prefix():
+  let node = tree_from_paths(["a", "a/b", "a/b/c"])
+  | assert_eq(len(node["children"]), 1)
+  | let a = node["children"][0]
+  | assert_eq(len(a["children"]), 1)
+  | let b = a["children"][0]
+  | assert_eq(b["label"], "b")
+  | assert_eq(len(b["children"]), 1)
+end
+
+def test_tree_from_paths_ignores_blank_segments():
+  let node = tree_from_paths(["/a/b/", "a//c"])
+  | assert_eq(len(node["children"]), 1)
+  | let a = node["children"][0]
+  | assert_eq(len(a["children"]), 2)
+end
+
+def test_tree_from_paths_custom_separator():
+  let node = tree_from_paths(["a.b.c", "a.b.d"], "\\.")
+  | let a = node["children"][0]
+  | let b = a["children"][0]
+  | assert_eq(b["label"], "b")
+  | assert_eq(len(b["children"]), 2)
+end
+
+def test_tree_from_paths_render():
+  let node = tree_from_paths(["src/main.rs", "src/lib.rs", "README.md"])
+  | assert_eq(tree_render(node), ".\n├── src\n│   ├── main.rs\n│   └── lib.rs\n└── README.md")
+end
+
+# -- tree_render_value / tree_render_paths --
+
+def test_tree_render_value():
+  let rendered = tree_render_value({"name": "Alice", "pets": ["cat", "dog"]})
+  | assert_eq(rendered, tree_render(tree_from_value({"name": "Alice", "pets": ["cat", "dog"]})))
+end
+
+def test_tree_render_value_custom_label():
+  let rendered = tree_render_value([1, 2], "nums")
+  | assert_eq(rendered, tree_render(tree_from_value([1, 2], "nums")))
+end
+
+def test_tree_render_paths():
+  let rendered = tree_render_paths(["src/main.rs", "src/lib.rs", "README.md"])
+  | assert_eq(rendered, ".\n├── src\n│   ├── main.rs\n│   └── lib.rs\n└── README.md")
+end

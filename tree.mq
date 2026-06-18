@@ -1,0 +1,114 @@
+# Tree rendering utilities for mq
+# Renders nested data (dicts, arrays, scalars) or flat path lists as
+# ASCII tree art, similar to the Unix `tree` command.
+
+# Creates a leaf node (a node with no children) with the given label.
+def tree_leaf(label):
+  {"label": label, "children": []}
+end
+
+# Creates a branch node with the given label and an array of child nodes.
+def tree_branch(label, children):
+  {"label": label, "children": children}
+end
+
+# Recursively converts an arbitrary value (dict, array, or scalar) into a
+# tree node, using `label` as the root label. Note: dict keys are not
+# guaranteed to preserve insertion order.
+def tree_from_value(value, label="root"):
+  match (value):
+    | :dict:
+      tree_branch(label, map(entries(value), fn(e): tree_from_value(e[1], e[0]);))
+    | :array:
+      do
+        var result = []
+        | var i = 0
+        | while (i < len(value)):
+            result = result + [tree_from_value(value[i], "[" + to_string(i) + "]")]
+            | i += 1
+          end
+        | tree_branch(label, result)
+      end
+    | :none: tree_leaf(label + ": None")
+    | _: tree_leaf(label + ": " + to_string(value))
+  end
+end
+
+# Inserts a single path's segments into an array of sibling nodes,
+# creating intermediate branch nodes as needed.
+def _tree_insert_path(children, segments):
+  if (is_empty(segments)):
+    children
+  else:
+    do
+      let head = segments[0]
+      | let rest = slice(segments, 1, len(segments))
+      | let idx = find_index(children, fn(c): c["label"] == head;)
+      | if (idx == -1):
+          children + [tree_branch(head, _tree_insert_path([], rest))]
+        else:
+          do
+            let existing = children[idx]
+            | let updated = tree_branch(existing["label"], _tree_insert_path(existing["children"], rest))
+            | slice(children, 0, idx) + [updated] + slice(children, idx + 1, len(children))
+          end
+    end
+end
+
+# Builds a tree node from an array of path strings (e.g. file or
+# directory paths), splitting each path on `sep`. The root node is
+# labeled `.`. Note: `sep` is matched as a regex (mq's `split` is
+# regex-based), so escape regex metacharacters (e.g. use "\\." for ".").
+def tree_from_paths(paths, sep="/"):
+  let root_children = fold(paths, [], fn(acc, p):
+    let segments = filter(split(p, sep), fn(s): !is_empty(s);)
+    | _tree_insert_path(acc, segments);
+  )
+  | tree_branch(".", root_children)
+end
+
+# Renders the child nodes of a node into an array of prefixed lines.
+def _tree_render_children_lines(children, prefix):
+  if (is_empty(children)):
+    []
+  else:
+    do
+      var result = []
+      | var i = 0
+      | while (i < len(children)):
+          result = result + _tree_render_lines(children[i], prefix, i == len(children) - 1)
+          | i += 1
+        end
+      | result
+    end
+end
+
+# Renders a single node (and its descendants) into an array of lines,
+# using `prefix` for the current depth and `is_last` to choose the
+# branch connector (`├── ` vs `└── `).
+def _tree_render_lines(node, prefix, is_last):
+  let connector = if (is_last): "└── " else: "├── "
+  | let line = prefix + connector + node["label"]
+  | let child_prefix = prefix + (if (is_last): "    " else: "│   ")
+  | [line] + _tree_render_children_lines(node["children"], child_prefix)
+end
+
+# Renders a tree node as ASCII tree art, in the style of the Unix
+# `tree` command.
+def tree_render(node):
+  let lines = [node["label"]] + _tree_render_children_lines(node["children"], "")
+  | join(lines, "\n")
+end
+
+# Converts an arbitrary value (dict, array, or scalar) into a tree and
+# renders it as ASCII tree art in one step. Shortcut for
+# `tree_render(tree_from_value(value, label))`.
+def tree_render_value(value, label="root"):
+  tree_render(tree_from_value(value, label))
+end
+
+# Builds a tree from an array of path strings and renders it as ASCII
+# tree art in one step. Shortcut for `tree_render(tree_from_paths(paths, sep))`.
+def tree_render_paths(paths, sep="/"):
+  tree_render(tree_from_paths(paths, sep))
+end
